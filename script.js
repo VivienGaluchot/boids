@@ -25,6 +25,7 @@ const mt = function () {
 
         setNorm(a) {
             this.normalizeInplace().scaleInplace(a);
+            return this;
         }
 
         addInplace(other) {
@@ -77,7 +78,7 @@ const ph = function () {
     }
 
     class Gravity {
-        constructor(G = .5) {
+        constructor(mobiles, G = .5) {
             this.G = G;
         }
 
@@ -87,7 +88,7 @@ const ph = function () {
             if (baNorm > 0) {
                 var magn = this.G * mobA.mass * mobB.mass / (baNorm * baNorm);
                 ba.normalizeInplace().scaleInplace(magn);
-                ba.cap(10);
+                ba.cap(5);
                 return { 'a': ba.copy().scaleInplace(-1), 'b': ba }
             } else {
                 return { 'a': new mt.Vect(), 'b': new mt.Vect() }
@@ -102,6 +103,14 @@ const ph = function () {
 }();
 
 const boids = function () {
+    function* pairs(iterable) {
+        for (var i = 0; i < iterable.length; i++) {
+            for (var j = i + 1; j < iterable.length; j++) {
+                yield { first: iterable[i], second: iterable[j] };
+            }
+        }
+    }
+
     class Bird extends ph.Mobile {
         constructor() {
             super();
@@ -120,22 +129,38 @@ const boids = function () {
 
             this.ctx = this.canvas.getContext("2d");
 
-            this.birdA = new Bird();
-            this.birdA.pos = new mt.Vect(1, 0);
-            this.birdA.vel = new mt.Vect(2, -6);
-            this.birdB = new Bird();
-            this.birdB.pos = new mt.Vect(-1, 0);
-            this.birdB.vel = new mt.Vect(-2, 6);
+
+            var birdA = new Bird();
+            birdA.pos = new mt.Vect(1, 0);
+            birdA.vel = new mt.Vect(2, -6);
+            var birdB = new Bird();
+            birdB.pos = new mt.Vect(-1, 0);
+            birdB.vel = new mt.Vect(-2, 6);
+            var birdC = new Bird();
+            birdC.mass = 0.2;
+            birdC.pos = new mt.Vect(0, 5);
+            birdC.vel = new mt.Vect(10, 0);
+
+            this.birds = [birdA, birdB, birdC];
         };
 
         animate(deltaTimeInS) {
             var gravity = new ph.Gravity();
-            var grv = gravity.getForces(this.birdA, this.birdB);
-            this.birdA.applyForce(grv.a);
-            this.birdB.applyForce(grv.b);
 
-            this.birdA.animate(deltaTimeInS);
-            this.birdB.animate(deltaTimeInS);
+            for (var bird of this.birds) {
+                var centering = bird.pos.copy().scaleInplace(-1).setNorm(bird.mass / 15);
+                bird.applyForce(centering);
+            }
+
+            for (var pair of pairs(this.birds)) {
+                var grv = gravity.getForces(pair.first, pair.second);
+                pair.first.applyForce(grv.a);
+                pair.second.applyForce(grv.b);
+            }
+
+            for (var bird of this.birds) {
+                bird.animate(deltaTimeInS);
+            }
         }
 
         draw(avgAnimatePeriodInMs = null, avgDrawPeriodInMs = null) {
@@ -178,18 +203,19 @@ const boids = function () {
             this.ctx.stroke();
             this.ctx.restore();
 
-            this.drawBird(this.birdA, 0.5);
-            this.drawBird(this.birdB, 0.5);
+            for (var bird of this.birds) {
+                this.drawBird(bird);
+            }
 
             this.ctx.restore();
         }
 
-        drawBird(bird, r) {
+        drawBird(bird) {
             this.ctx.save();
             this.ctx.fillStyle = "#FFF3";
             this.ctx.strokeStyle = "#FFF";
             this.ctx.beginPath();
-            this.ctx.arc(bird.pos.x, bird.pos.y, r, 0, 2 * Math.PI);
+            this.ctx.arc(bird.pos.x, bird.pos.y, 0.5 * bird.mass, 0, 2 * Math.PI);
             this.ctx.stroke();
             this.ctx.fill();
             this.ctx.restore();
