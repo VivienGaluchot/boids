@@ -75,10 +75,14 @@ const ph = function () {
             this.pos.addInplace(this.vel.copy().scaleInplace(deltaTimeInS));
             this.acc.set(0, 0);
         }
+
+        radius() {
+            return 0.2 * Math.cbrt(this.mass);
+        }
     }
 
     class Gravity {
-        constructor(mobiles, G = .5) {
+        constructor(G = .02) {
             this.G = G;
         }
 
@@ -98,7 +102,7 @@ const ph = function () {
 
     return {
         Mobile: Mobile,
-        Gravity: Gravity,
+        Gravity: Gravity
     }
 }();
 
@@ -120,6 +124,7 @@ const boids = function () {
     class Sandbox {
         constructor(element) {
             this.canvas = element;
+            this.pixelPerUnit = 20;
 
             this.dpr = window.devicePixelRatio || 1;
 
@@ -129,29 +134,42 @@ const boids = function () {
 
             this.ctx = this.canvas.getContext("2d");
 
-
-            var birdA = new Bird();
-            birdA.pos = new mt.Vect(1, 0);
-            birdA.vel = new mt.Vect(2, -6);
-            var birdB = new Bird();
-            birdB.pos = new mt.Vect(-1, 0);
-            birdB.vel = new mt.Vect(-2, 6);
-            var birdC = new Bird();
-            birdC.mass = 0.2;
-            birdC.pos = new mt.Vect(0, 5);
-            birdC.vel = new mt.Vect(10, 0);
-
-            this.birds = [birdA, birdB, birdC];
-        };
-
-        animate(deltaTimeInS) {
-            var gravity = new ph.Gravity();
-
-            for (var bird of this.birds) {
-                var centering = bird.pos.copy().scaleInplace(-1).setNorm(bird.mass / 15);
-                bird.applyForce(centering);
+            this.birds = [];
+            for (var i = -10; i < 10; i++) {
+                for (var j = -10; j < 10; j++) {
+                    var bird = new Bird();
+                    bird.pos = new mt.Vect(i, j);
+                    bird.mass = 1 * Math.random() + 0.2;
+                    this.birds.push(bird);
+                }
             }
 
+        };
+
+        bounds() {
+            var w = this.canvas.width / (this.pixelPerUnit * this.dpr);
+            var h = this.canvas.height / (this.pixelPerUnit * this.dpr);
+            return {
+                x: -w / 2, y: -h / 2, w: w, h: h
+            };
+        }
+
+        animate(deltaTimeInS) {
+            for (var pair of pairs(this.birds)) {
+                if (pair.first.pos.minus(pair.second.pos).norm() < pair.first.radius() + pair.second.radius()) {
+                    // collapse
+                    if (pair.first.mass >= pair.second.mass) {
+                        pair.first.mass += pair.second.mass;
+                        pair.second.mass = 0;
+                    } else {
+                        pair.second.mass += pair.first.mass;
+                        pair.first.mass = 0;
+                    }
+                }
+            }
+            this.birds = this.birds.filter(bird => bird.mass > 0);
+
+            var gravity = new ph.Gravity();
             for (var pair of pairs(this.birds)) {
                 var grv = gravity.getForces(pair.first, pair.second);
                 pair.first.applyForce(grv.a);
@@ -161,6 +179,26 @@ const boids = function () {
             for (var bird of this.birds) {
                 bird.animate(deltaTimeInS);
             }
+
+            // var bounds = this.bounds();
+            // for (var bird of this.birds) {
+            //     if (bird.pos.x - bird.radius() < bounds.x) {
+            //         bird.pos.x = bounds.x + bird.radius();
+            //         bird.vel.x *= -0.5;
+            //     }
+            //     if (bird.pos.x + bird.radius() > bounds.x + bounds.w) {
+            //         bird.pos.x = bounds.x + bounds.w - bird.radius();
+            //         bird.vel.x *= -0.5;
+            //     }
+            //     if (bird.pos.y - bird.radius() < bounds.y) {
+            //         bird.pos.y = bounds.y + bird.radius();
+            //         bird.vel.y *= -0.5;
+            //     }
+            //     if (bird.pos.y + bird.radius() > bounds.y + bounds.h) {
+            //         bird.pos.y = bounds.y + bounds.h - bird.radius();
+            //         bird.vel.y *= -0.5;
+            //     }
+            // }
         }
 
         draw(avgAnimatePeriodInMs = null, avgDrawPeriodInMs = null) {
@@ -178,15 +216,14 @@ const boids = function () {
             }
 
             // rescale
-            var pixelPerUnit = 20;
             this.ctx.translate(this.canvas.width / 2, this.canvas.height / 2);
             this.ctx.scale(this.dpr, this.dpr);
-            this.ctx.scale(pixelPerUnit, -1 * pixelPerUnit);
+            this.ctx.scale(this.pixelPerUnit, -1 * this.pixelPerUnit);
 
             // default style
             this.ctx.fillStyle = "#FFF";
             this.ctx.strokeStyle = "#DDD";
-            this.ctx.lineWidth = 2 / pixelPerUnit;
+            this.ctx.lineWidth = 1 / this.pixelPerUnit;
 
             // post rescale draw
             this.ctx.save();
@@ -201,6 +238,10 @@ const boids = function () {
             this.ctx.moveTo(0, 0);
             this.ctx.lineTo(0, 1);
             this.ctx.stroke();
+
+            var bounds = this.bounds();
+            this.ctx.strokeStyle = "#FFF4";
+            this.ctx.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h);
             this.ctx.restore();
 
             for (var bird of this.birds) {
@@ -215,7 +256,7 @@ const boids = function () {
             this.ctx.fillStyle = "#FFF3";
             this.ctx.strokeStyle = "#FFF";
             this.ctx.beginPath();
-            this.ctx.arc(bird.pos.x, bird.pos.y, 0.5 * bird.mass, 0, 2 * Math.PI);
+            this.ctx.arc(bird.pos.x, bird.pos.y, bird.radius(), 0, 2 * Math.PI);
             this.ctx.stroke();
             this.ctx.fill();
             this.ctx.restore();
@@ -236,12 +277,13 @@ const boids = function () {
 
             var animate = () => {
                 var currentTimeInMs = Date.now();
-                sandbox.animate(animatePeriodInMs / 1000);
-
                 var deltaTimeInMs = 0;
                 if (lastAnimateInMs != null) {
                     deltaTimeInMs = currentTimeInMs - lastAnimateInMs;
                 }
+
+                sandbox.animate(Math.min(deltaTimeInMs, 10 * animatePeriodInMs) / 1000);
+
                 lastAnimateInMs = currentTimeInMs;
                 if (deltaTimeInMs > 0) {
                     if (avgAnimatePeriodInMs != null) {

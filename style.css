@@ -26,8 +26,7 @@ content {
   font-family: 'Consolas', monospace;
 }
 
-h2,
-h1 {
+h2, h1 {
   color: rgb(150, 107, 107);
   margin: 0;
   font-size: 2rem;
@@ -42,6 +41,7 @@ h2 {
 a {
   color: #87b6eb;
 }
+
 a:visited {
   color: #c175df;
 }
@@ -64,10 +64,9 @@ footer {
   background-color: #0b0505;
 }
 
-
 #sandbox {
   display: inline-block;
-  background-color:  #0b0505;
+  background-color: #0b0505;
   border: 1px solid #554e4c;
   width: 100%;
   margin: 1rem 0;
