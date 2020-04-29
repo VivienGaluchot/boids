@@ -5,9 +5,14 @@ const mt = function () {
             this.y = y;
         }
 
+        is(x = 0, y = 0) {
+            return this.x == x && this.y == y;
+        }
+
         set(x = 0, y = 0) {
             this.x = x;
             this.y = y;
+            return this;
         }
 
         copy() {
@@ -19,6 +24,10 @@ const mt = function () {
         }
 
         normalizeInplace() {
+            var norm = this.norm();
+            if (norm == 0) {
+                throw Error("norm null");
+            }
             this.scaleInplace(1 / this.norm());
             return this;
         }
@@ -61,7 +70,7 @@ const ph = function () {
     class Mobile {
         constructor() {
             this.pos = new mt.Vect();
-            this.vel = new mt.Vect();
+            this.spd = new mt.Vect();
             this.acc = new mt.Vect();
             this.mass = 1;
         }
@@ -71,8 +80,8 @@ const ph = function () {
         }
 
         animate(deltaTimeInS) {
-            this.vel.addInplace(this.acc);
-            this.pos.addInplace(this.vel.copy().scaleInplace(deltaTimeInS));
+            this.spd.addInplace(this.acc);
+            this.pos.addInplace(this.spd.copy().scaleInplace(deltaTimeInS));
             this.acc.set(0, 0);
         }
 
@@ -81,28 +90,8 @@ const ph = function () {
         }
     }
 
-    class Gravity {
-        constructor(G = .02) {
-            this.G = G;
-        }
-
-        getForces(mobA, mobB) {
-            var ba = mobA.pos.minus(mobB.pos);
-            var baNorm = ba.norm();
-            if (baNorm > 0) {
-                var magn = this.G * mobA.mass * mobB.mass / (baNorm * baNorm);
-                ba.normalizeInplace().scaleInplace(magn);
-                ba.cap(5);
-                return { 'a': ba.copy().scaleInplace(-1), 'b': ba }
-            } else {
-                return { 'a': new mt.Vect(), 'b': new mt.Vect() }
-            }
-        }
-    }
-
     return {
-        Mobile: Mobile,
-        Gravity: Gravity
+        Mobile: Mobile
     }
 }();
 
@@ -116,8 +105,50 @@ const boids = function () {
     }
 
     class Bird extends ph.Mobile {
-        constructor() {
+        constructor(birds) {
             super();
+            this.birds = birds;
+            this.targetSpeed = 5;
+            this.maxForce = 0.2 * this.mass;
+            this.autoControl = null;
+        }
+
+        animate(deltaTimeInS) {
+            // autocontrol
+
+            // match direction
+            var matchRadius = 3;
+            var distRadius = 1;
+            var mediumSpeed = new mt.Vect();
+            for (var bird of this.birds) {
+                if (bird != this) {
+                    var diff = this.pos.minus(bird.pos);
+                    var dist = diff.norm();
+                    if (dist < matchRadius) {
+                        mediumSpeed.addInplace(bird.spd);
+                    }
+                    if (dist < distRadius) {
+                        this.applyForce(diff.setNorm(0.1))
+                    }
+                }
+            }
+
+            // maintain speed
+            var currentSpeed = this.spd.norm();
+            this.autoControl = new mt.Vect();
+            if (currentSpeed < this.targetSpeed) {
+                var force = this.maxForce * (this.targetSpeed - currentSpeed) / this.targetSpeed;
+                if (!mediumSpeed.is(0, 0)) {
+                    this.autoControl = mediumSpeed.copy().setNorm(force)
+                } else {
+                    this.autoControl = this.spd.copy().setNorm(force)
+                }
+            }
+
+
+            this.applyForce(this.autoControl);
+
+            super.animate(deltaTimeInS);
         }
     }
 
@@ -135,11 +166,12 @@ const boids = function () {
             this.ctx = this.canvas.getContext("2d");
 
             this.birds = [];
-            for (var i = -10; i < 10; i++) {
-                for (var j = -10; j < 10; j++) {
-                    var bird = new Bird();
+            for (var i = -5; i < 5; i++) {
+                for (var j = -5; j < 5; j++) {
+                    var bird = new Bird(this.birds);
                     bird.pos = new mt.Vect(i, j);
-                    bird.mass = 1 * Math.random() + 0.2;
+                    bird.spd = new mt.Vect(Math.random() - .5, Math.random() - .5).scaleInplace(5);
+                    bird.mass = 1 * Math.random() + 1;
                     this.birds.push(bird);
                 }
             }
@@ -155,50 +187,31 @@ const boids = function () {
         }
 
         animate(deltaTimeInS) {
-            for (var pair of pairs(this.birds)) {
-                if (pair.first.pos.minus(pair.second.pos).norm() < pair.first.radius() + pair.second.radius()) {
-                    // collapse
-                    if (pair.first.mass >= pair.second.mass) {
-                        pair.first.mass += pair.second.mass;
-                        pair.second.mass = 0;
-                    } else {
-                        pair.second.mass += pair.first.mass;
-                        pair.first.mass = 0;
-                    }
-                }
-            }
-            this.birds = this.birds.filter(bird => bird.mass > 0);
-
-            var gravity = new ph.Gravity();
-            for (var pair of pairs(this.birds)) {
-                var grv = gravity.getForces(pair.first, pair.second);
-                pair.first.applyForce(grv.a);
-                pair.second.applyForce(grv.b);
-            }
-
             for (var bird of this.birds) {
+                var friction = bird.spd.copy().scaleInplace(bird.spd.norm() * -0.001);
+                bird.applyForce(friction);
                 bird.animate(deltaTimeInS);
             }
 
-            // var bounds = this.bounds();
-            // for (var bird of this.birds) {
-            //     if (bird.pos.x - bird.radius() < bounds.x) {
-            //         bird.pos.x = bounds.x + bird.radius();
-            //         bird.vel.x *= -0.5;
-            //     }
-            //     if (bird.pos.x + bird.radius() > bounds.x + bounds.w) {
-            //         bird.pos.x = bounds.x + bounds.w - bird.radius();
-            //         bird.vel.x *= -0.5;
-            //     }
-            //     if (bird.pos.y - bird.radius() < bounds.y) {
-            //         bird.pos.y = bounds.y + bird.radius();
-            //         bird.vel.y *= -0.5;
-            //     }
-            //     if (bird.pos.y + bird.radius() > bounds.y + bounds.h) {
-            //         bird.pos.y = bounds.y + bounds.h - bird.radius();
-            //         bird.vel.y *= -0.5;
-            //     }
-            // }
+            var bounds = this.bounds();
+            for (var bird of this.birds) {
+                if (bird.pos.x - bird.radius() < bounds.x) {
+                    bird.pos.x = bounds.x + bird.radius();
+                    bird.spd.x *= -0.5;
+                }
+                if (bird.pos.x + bird.radius() > bounds.x + bounds.w) {
+                    bird.pos.x = bounds.x + bounds.w - bird.radius();
+                    bird.spd.x *= -0.5;
+                }
+                if (bird.pos.y - bird.radius() < bounds.y) {
+                    bird.pos.y = bounds.y + bird.radius();
+                    bird.spd.y *= -0.5;
+                }
+                if (bird.pos.y + bird.radius() > bounds.y + bounds.h) {
+                    bird.pos.y = bounds.y + bounds.h - bird.radius();
+                    bird.spd.y *= -0.5;
+                }
+            }
         }
 
         draw(avgAnimatePeriodInMs = null, avgDrawPeriodInMs = null) {
@@ -253,12 +266,27 @@ const boids = function () {
 
         drawBird(bird) {
             this.ctx.save();
+
+            // this.ctx.strokeStyle = "#AFF8";
+            // var spdEnd = bird.spd.copy().scaleInplace(0.5).addInplace(bird.pos);
+            // this.ctx.beginPath();
+            // this.ctx.moveTo(bird.pos.x, bird.pos.y);
+            // this.ctx.lineTo(spdEnd.x, spdEnd.y);
+            // this.ctx.stroke();
+            // this.ctx.strokeStyle = "#F00F";
+            // var autoControlEnd = bird.autoControl.copy().scaleInplace(50).addInplace(bird.pos);
+            // this.ctx.beginPath();
+            // this.ctx.moveTo(bird.pos.x, bird.pos.y);
+            // this.ctx.lineTo(autoControlEnd.x, autoControlEnd.y);
+            // this.ctx.stroke();
+
             this.ctx.fillStyle = "#FFF3";
             this.ctx.strokeStyle = "#FFF";
             this.ctx.beginPath();
             this.ctx.arc(bird.pos.x, bird.pos.y, bird.radius(), 0, 2 * Math.PI);
             this.ctx.stroke();
             this.ctx.fill();
+
             this.ctx.restore();
         };
     }
