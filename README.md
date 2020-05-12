@@ -1,6 +1,6 @@
 # Boids algorithm
 
-JavaScript implementation of bird flock simulation.
+JavaScript (mediocre) implementation of bird flock simulation.
 
 # Demo
 
